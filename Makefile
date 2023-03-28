@@ -41,6 +41,9 @@ ds1963s_in_ds2480b.plugin:
 exec_blocker.plugin:
 	cc -shared -m32 -fPIC src/plugins/exec_blocker/exec_blocker.c $(PLUGIN_INCLUDES) -o $(PLUGIN_BUILD_ROOT)/$@
 
+pro1_data_zip.plugin:
+	cc -shared -m32 -fPIC src/plugins/pro1_data_zip/*.c $(PLUGIN_INCLUDES) -o $(PLUGIN_BUILD_ROOT)/$@
+
 locale.plugin:
 	cc -shared -m32 -fPIC src/plugins/locale/locale.c $(PLUGIN_INCLUDES) -o $(PLUGIN_BUILD_ROOT)/$@
 
