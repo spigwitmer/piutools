@@ -12,7 +12,7 @@ loader:
 	cc -shared -m32 -fPIC src/piutools_loader.c $(PLUGIN_INCLUDES) -ldl -o $(BUILD_ROOT)/piutools.so
 
 # --- Plugins ---
-plugins: asound.plugin  ata_hdd.plugin microdog.plugin s3d_opengl.plugin deadlock.plugin ds1963s_in_ds2480b.plugin filesystem_redirect.plugin ticket_dispenser.plugin usbfs_null.plugin x11_keyboard_input.plugin
+plugins: asound.plugin  ata_hdd.plugin microdog.plugin s3d_opengl.plugin deadlock.plugin ds1963s_in_ds2480b.plugin filesystem_redirect.plugin ticket_dispenser.plugin usbfs_null.plugin x11_keyboard_input.plugin reboot_blocker.plugin
 
 asound.plugin:
 	cc -shared -m32 -fPIC src/plugins/asound/asound.c $(PLUGIN_INCLUDES) -o $(PLUGIN_BUILD_ROOT)/$@
@@ -90,6 +90,8 @@ usb_profile.plugin:
 usbfs_emulator.plugin:
 	cc -shared -m32 -fPIC src/plugins/usbfs_emulator/usbfs_emulator.c $(PLUGIN_INCLUDES) -o $(PLUGIN_BUILD_ROOT)/$@
 
+reboot_blocker.plugin:
+	cc -shared -m32 -fPIC $(CFLAGS) src/plugins/reboot_blocker/*.c $(PLUGIN_INCLUDES) -o $(PLUGIN_BUILD_ROOT)/$@
 
 filesystem_redirect.plugin:
 	cc -shared -m32 -fPIC src/plugins/filesystem_redirect/filesystem_redirect.c $(PLUGIN_INCLUDES) -o $(PLUGIN_BUILD_ROOT)/$@
