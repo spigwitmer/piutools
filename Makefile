@@ -84,6 +84,23 @@ DS1963S_IN_DS2480B_SOURCES := src/plugins/ds1963s_in_ds2480b/ds1963s_in_ds2480b.
 $(PLUGIN_BUILD_ROOT)/ds1963s_in_ds2480b.plugin: $(DS1963S_UTILS_SOURCES) $(DS1963S_IN_DS2480B_SOURCES)
 	cc -shared -m32 -fPIC $(CFLAGS) $(DS1963s_IN_DS2480B_SOURCES) $(DS1963S_UTILS_SOURCES) $(PLUGIN_INCLUDES) -lpthread -I src/plugins/ds1963s_in_ds2480b/ds1963s-utils/src -o $@
 
+PRO1_DATA_ZIP_OW_SOURCES := src/plugins/pro1_data_zip/ow/crcutil.c \
+							src/plugins/pro1_data_zip/ow/ds2480ut.c \
+							src/plugins/pro1_data_zip/ow/linuxlnk.c \
+							src/plugins/pro1_data_zip/ow/owerr.c \
+							src/plugins/pro1_data_zip/ow/owllu.c \
+							src/plugins/pro1_data_zip/ow/ownetu.c \
+							src/plugins/pro1_data_zip/ow/owsesu.c \
+							src/plugins/pro1_data_zip/ow/owtrnu.c \
+							src/plugins/pro1_data_zip/ow/sha18.c \
+							src/plugins/pro1_data_zip/ow/shaib.c
+
+PRO1_DATA_ZIP_SOURCES := src/plugins/pro1_data_zip/pro1_data_zip.c \
+						 src/plugins/pro1_data_zip/base64.c
+
+$(PLUGIN_BUILD_ROOT)/pro1_data_zip.plugin: $(PRO1_DATA_ZIP_OW_SOURCES) $(PRO1_DATA_ZIP_SOURCES)
+	cc -shared -m32 -fPIC $(CFLAGS) $(PRO1_DATA_ZIP_SOURCES) $(PRO1_DATA_ZIP_OW_SOURCES) $(PLUGIN_INCLUDES) -o $(PLUGIN_BUILD_ROOT)/$@
+
 .PHONY: clean
 clean:
 	rm -f $(PLUGIN_OBJS) $(BUILD_ROOT)/piutools.so
