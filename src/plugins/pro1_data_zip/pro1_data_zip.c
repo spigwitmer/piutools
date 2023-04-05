@@ -2,26 +2,28 @@
  * pro1_data_zip: add transparent encryption to prior decrypted data
  * zips for Pump Pro 1
  */
+#include <stdlib.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
-#include "plugin_sdk/plugin.h"
-#include "plugin_sdk/dbg.h"
-#include "plugin_sdk/enc_zip_file.h"
-#include "plugin_sdk/dongle.h"
+#include <sys/types.h>
+#include <unistd.h>
 #include "aes.h"
+#include "dongle.h"
+#include "enc_zip_file.h"
+#include "plugin_sdk/dbg.h"
+#include "plugin_sdk/plugin.h"
 
 #define min(x,y) ((x) > (y) ? (y) : (x))
 
 typedef int (*open_func_t)(const char *, int);
 open_func_t next_open;
-typedef int (*close_func_t)(int);
-close_func_t next_close;
 typedef ssize_t (*read_func_t)(int, void *, size_t);
 read_func_t next_read;
 typedef int (*lseek_func_t)(int, off_t, int);
-read_func_t next_lseek;
+lseek_func_t next_lseek;
 
-static char *data_zip_dir;
+static const char *data_zip_dir;
 
 /**
  * bookkeeping for each opened file
@@ -31,16 +33,16 @@ typedef struct zip_enc_context {
     int fd;
     off_t pos;
     uint8_t aes_key[24];
-    AesContext aes_ctx;
+    struct AES_ctx aes_ctx;
     enc_zip_file_header *header;
-    zip_enc_context *next;
+    struct zip_enc_context *next;
     // each data zip has a signature file that is signed by the private
     // key linked to /Data/public.rsa (the validation of which is
     // exptected to be thwarted in another plugin)
     uint8_t sig[128];
 } zip_enc_context;
 
-static zip_enc_context *head = NULL, *tail = head;
+static zip_enc_context *head = NULL, *tail = NULL;
 
 // ugly routine yanked from sm-ac-tools
 void saltHash(uint8_t *salted, const uint8_t salt[16], int addition) {
@@ -113,11 +115,10 @@ void saltHash(uint8_t *salted, const uint8_t salt[16], int addition) {
 
 static char *verify_block_plaintext = "<<abcdefghijklmn";
 
-zip_enc_context *create_new_context(char *path, int fd) {
-    AesContext aes_ctx;
+zip_enc_context *create_new_context(const char *path, int fd) {
     uint8_t salted[16];
 
-    zip_enc_context *ctx = (zip_enc_context *)malloc(sizeof zip_enc_context);
+    zip_enc_context *ctx = (zip_enc_context *)malloc(sizeof(zip_enc_context));
     ctx->fd = fd;
     ctx->pos = 0;
     ctx->header = generate_header(fd);
@@ -127,11 +128,11 @@ zip_enc_context *create_new_context(char *path, int fd) {
         fprintf(stderr, "failed to derive AES key from ds1963s\n");
         return NULL;
     }
-    saltHash(salted, header->salt, 0x123456);
-    AesInitialise192(ctx->aes_key, &ctx->aes_ctx);
-    AesEncrypt(&ctx->aes_ctx, salted, ctx->verify_block);
+    saltHash(salted, ctx->header->salt, 0x123456);
+    AES_init_ctx(&ctx->aes_ctx, ctx->aes_key);
+    AES_ECB_encrypt(&ctx->aes_ctx, salted);
     for (int i = 0; i < 16; i++) {
-        ctx->header->verify_block[i] ^= verify_block_plaintext[i];
+        ctx->header->verify_block[i] = salted[i] ^ verify_block_plaintext[i];
     }
 
     if (head == NULL) {
@@ -155,7 +156,7 @@ zip_enc_context *find_context_by_fd(int fd) {
     return NULL;
 }
 
-zip_enc_context *find_context_by_path(char *path) {
+zip_enc_context *find_context_by_path(const char *path) {
     zip_enc_context *stl = head;
     while (stl != NULL) {
         // XXX: normalize path (if even needed)?
@@ -195,6 +196,27 @@ int pro1_data_zip_open(const char *path, int flags) {
     return fd;
 }
 
+void uint128_add(uint8_t add_to[16], const unsigned int to_add) {
+    int carry = 0;
+    for (int j = 15; j >= 0; j--) {
+        if (j < 12) {
+            if (add_to[j] == 255 && carry == 1) {
+                add_to[j] = 0;
+            } else {
+                carry = 0;
+            }
+        } else {
+            uint8_t segmented_addition = (to_add & (0xff << ((15-j)*8))) >> ((15-j)*8);
+            uint8_t oldcarry = add_to[j];
+
+            add_to[j] += segmented_addition + carry;
+            if ((int)segmented_addition + (int)oldcarry > 255) {
+                carry = 1;
+            }
+        }
+    }   
+}
+
 ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
     // fool the client into reading additional data before or after the
     // file itself such as the crypt header or file signature
@@ -216,10 +238,6 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
         got += header_count;
     }
     if (zip_ctx->pos < sig_start && remaining > 0) {
-        uint8_t salt_copy[16], decbuf[4080];
-        int num_crypts = 0, scoped_pos = 0;
-        off_t cur_file_pos = zip_ctx->pos - data_start;
-
         // read encrypted data in 4080-byte blocks, as the key is
         // reset every 4080 bytes
 
@@ -235,7 +253,8 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
         }
         // prepare salt
         memcpy(salt_copy, zip_ctx->header->salt, sizeof salt_copy);
-        *((__uint128_t *)salt_copy) += block_start;
+        unsigned int block_start = encrypted_data_pos / 16;
+		uint128_add(salt_copy, block_start);
         // encrypt contained data
         while (encrypted_data_remaining > 0) {
             int crypt_got = next_read(fd, decbuf, read_block_size);
@@ -248,10 +267,11 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
                 num_crypt_operations++;
             }
             for (int i = 0; i < num_crypt_operations; i++) {
-                AesEncrypt(&zip_ctx->aes_ctx, salt_copy, dsalted);
-                (*((__uint128_t *)salt_copy))++;
+                memcpy(dsalted, salt_copy, sizeof dsalted);
+                AES_ECB_encrypt(&zip_ctx->aes_ctx, dsalted);
+				uint128_add(salt_copy, 1);
                 for (int j = 0; j < 16; j++) {
-                    buf[got] = dsalted[j] ^ decbuf[i*16+j];
+                    *((uint8_t *)(buf+got)) = dsalted[j] ^ decbuf[i*16+j];
                     got++;
                     remaining--;
                     encrypted_data_remaining--;
@@ -272,9 +292,28 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
     return got;
 }
 
+int pro1_data_zip_lseek(int fd, off_t offset, int whence) {
+    zip_enc_context *zip_ctx = find_context_by_fd(fd);
+    if (zip_ctx == NULL) {
+        return next_lseek(fd, offset, whence);
+    }
+
+    switch (whence) {
+    case SEEK_SET:
+        zip_ctx->pos = offset;
+        break;
+    case SEEK_CUR:
+        zip_ctx->pos += offset;
+        break;
+    case SEEK_END:
+        zip_ctx->pos = sizeof(enc_zip_file_header) + zip_ctx->header->file_size + sizeof(zip_ctx->sig) + offset;
+        break;
+    }
+    return zip_ctx->pos;
+}
+
 static HookEntry entries[] = {
     HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "open", pro1_data_zip_open, &next_open, 1),
-    /*HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "close", pro1_data_zip_close, &next_close, 1),*/
     HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "read", pro1_data_zip_read, &next_read, 1),
     HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "lseek", pro1_data_zip_lseek, &next_lseek, 1),
     {}    

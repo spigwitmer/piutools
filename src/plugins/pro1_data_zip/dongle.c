@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "dongle.h"
 #include "enc_zip_file.h"
 #include "plugin_sdk/crypt/sha1.h"
 #include "ow/shaib.h"

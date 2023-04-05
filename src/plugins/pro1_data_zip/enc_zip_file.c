@@ -1,17 +1,20 @@
 #include <errno.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
-#include "plugin/dbg.h"
+#include <unistd.h>
+#include "plugin_sdk/dbg.h"
 #include "enc_zip_file.h"
 
 void generate_random_bytes(uint8_t *buf, int count) {
-    for (i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++) {
         buf[i] = rand() % 255;
     }
 }
 
 
 enc_zip_file_header *generate_header(int fd) {
-    enc_zip_file_header *header = (enc_zip_file_header *)malloc(sizeof enc_zip_file_header);
+    enc_zip_file_header *header = (enc_zip_file_header *)malloc(sizeof(enc_zip_file_header));
     if (header == NULL) {
         perror("malloc()");
         return NULL;
