@@ -9,6 +9,7 @@ void generate_random_bytes(uint8_t *buf, int count) {
     }
 }
 
+
 enc_zip_file_header *generate_header(int fd) {
     enc_zip_file_header *header = (enc_zip_file_header *)malloc(sizeof enc_zip_file_header);
     if (header == NULL) {
