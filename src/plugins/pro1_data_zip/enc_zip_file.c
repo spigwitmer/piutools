@@ -26,9 +26,9 @@ enc_zip_file_header *generate_header(int fd) {
     generate_random_bytes(header->salt, PRO1_AES_BLOCK_SIZE);
 
     // get file size
-    off_t curpos, fsize;
+    off_t curpos;
     curpos = lseek(fd, SEEK_CUR, 0);
-    header->file_size = lseek(fd, SEEK_END, 0);
+    header->file_size = lseek(fd, 0, SEEK_END);
     lseek(fd, SEEK_SET, curpos);
 
     return header;

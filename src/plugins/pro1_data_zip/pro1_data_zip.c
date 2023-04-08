@@ -2,21 +2,29 @@
  * pro1_data_zip: add transparent encryption to prior decrypted data
  * zips for Pump Pro 1
  */
+#include <errno.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
+#ifdef WINDOWS
+#error "Windows is not currently supported"
+#else
+#include <linux/limits.h>
+#endif
 #include <unistd.h>
 #include "aes.h"
 #include "dongle.h"
 #include "enc_zip_file.h"
 #include "plugin_sdk/dbg.h"
+#include "plugin_sdk/ini.h"
 #include "plugin_sdk/plugin.h"
+#include "plugin_sdk/PIUTools_Filesystem.h"
 
 #define min(x,y) ((x) > (y) ? (y) : (x))
 
-typedef int (*open_func_t)(const char *, int);
+typedef int (*open_func_t)(const char *, int, mode_t);
 open_func_t next_open;
 typedef ssize_t (*read_func_t)(int, void *, size_t);
 read_func_t next_read;
@@ -118,9 +126,13 @@ static char *verify_block_plaintext = "<<abcdefghijklmn";
 zip_enc_context *create_new_context(const char *path, int fd) {
     uint8_t salted[16];
 
+    DBG_printf("pro1_data_zip: Creating new context for %s\n", path);
     zip_enc_context *ctx = (zip_enc_context *)malloc(sizeof(zip_enc_context));
     ctx->fd = fd;
     ctx->pos = 0;
+    ctx->pathname = (char *)malloc(strlen(path)+1);
+    ctx->pathname[strlen(path)] = 0x0;
+    strncpy(ctx->pathname, path, strlen(path));
     ctx->header = generate_header(fd);
 
     // derive key and verify block
@@ -135,12 +147,13 @@ zip_enc_context *create_new_context(const char *path, int fd) {
         ctx->header->verify_block[i] = salted[i] ^ verify_block_plaintext[i];
     }
 
+    ctx->next = NULL;
     if (head == NULL) {
         head = ctx;
         tail = head;
     } else {
         tail->next = ctx;
-        tail = ctx;
+        tail = tail->next;
     }
     return ctx;
 }
@@ -159,7 +172,6 @@ zip_enc_context *find_context_by_fd(int fd) {
 zip_enc_context *find_context_by_path(const char *path) {
     zip_enc_context *stl = head;
     while (stl != NULL) {
-        // XXX: normalize path (if even needed)?
         if (strncmp(path, stl->pathname, strlen(path)) == 0) {
             return stl;
         }
@@ -170,30 +182,39 @@ zip_enc_context *find_context_by_path(const char *path) {
 
 int is_data_zip_file(const char *path) {
     /* 1 = data zip, 0 = not */
+    char fullpath[PATH_MAX+1];
     if (data_zip_dir == NULL) {
         return 0;
     }
-    return (strstr(path, data_zip_dir) == path) ? 1 : 0;
+    if (realpath(path, fullpath) == NULL) {
+        fprintf(stderr, "Cannot resolve full path for %s: %s\n", path, strerror(errno));
+        return 0;
+    }
+    // TODO: check if it file ends in .zip?
+    return (strstr(fullpath, data_zip_dir) == fullpath) ? 1 : 0;
 }
 
 /* determines if it's a data zip file and registers a context with it */
-int pro1_data_zip_open(const char *path, int flags) {
-    zip_enc_context *zip_ctx = find_context_by_path(path);
-    int fd = next_open(path, flags);
-    if (fd == -1) {
-        perror("open()");
-        return -1;
-    }
+int pro1_data_zip_open(const char *path, int flags, mode_t mode) {
     if (is_data_zip_file(path)) {
+        zip_enc_context *zip_ctx = find_context_by_path(path);
+        int fd = next_open(path, flags, mode);
+        if (fd == -1) {
+            perror("open()");
+            return -1;
+        }
         if (zip_ctx == NULL) {
             DBG_printf("%s: opening new data zip file (%s)\n", __FUNCTION__, path);
             zip_ctx = create_new_context(path, fd);
         } else {
             DBG_printf("%s: opening prior opened data zip file (%s)\n", __FUNCTION__, path);
+            zip_ctx->fd = fd;
         }
         zip_ctx->pos = 0;
+        return fd;
+    } else {
+        return next_open(path, flags, mode);
     }
-    return fd;
 }
 
 void uint128_add(uint8_t add_to[16], const unsigned int to_add) {
@@ -223,6 +244,9 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
     size_t remaining = count;
     off_t data_start = sizeof(enc_zip_file_header), sig_start;
     int got = 0;
+    // XXX
+    DBG_printf("XXX bypassing to next_read(%d, x, %d)\n", fd, count);
+    return next_read(fd, buf, count);
     zip_enc_context *zip_ctx = find_context_by_fd(fd);
     if (remaining == 0 || zip_ctx == NULL) {
         return next_read(fd, buf, count);
@@ -232,7 +256,7 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
     if (zip_ctx->pos < data_start) {
         // read header first if applicable
         size_t header_count = min(remaining, data_start-zip_ctx->pos);
-        memcpy(buf, (void *)zip_ctx->header, header_count);
+        memcpy(buf, (void *)(zip_ctx->header)+zip_ctx->pos, header_count);
         remaining -= header_count;
         zip_ctx->pos += header_count;
         got += header_count;
@@ -255,11 +279,17 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
         memcpy(salt_copy, zip_ctx->header->salt, sizeof salt_copy);
         unsigned int block_start = encrypted_data_pos / 16;
 		uint128_add(salt_copy, block_start);
+        lseek(fd, encrypted_data_pos, SEEK_SET);
         // encrypt contained data
         while (encrypted_data_remaining > 0) {
+            DBG_printf("%s: encrypted_data_remaining=%d\n", __FUNCTION__, encrypted_data_remaining, zip_ctx->pos);
             int crypt_got = next_read(fd, decbuf, read_block_size);
             if (crypt_got == -1) {
                 perror("read()");
+                return -1;
+            }
+            if (crypt_got == 0) {
+                DBG_printf("%s: Why is crypt_got 0????\n", __FUNCTION__);
                 return -1;
             }
             int num_crypt_operations = crypt_got / 16;
@@ -319,14 +349,20 @@ static HookEntry entries[] = {
     {}    
 };
 
-static int parse_config(void* user, const char* section, const char* name, const char* value){    
+static int parse_config(void* user, const char* section, const char* name, const char* value){
     if(strcmp(section,"PRO1_DATA_ZIP") == 0 && strcmp(name, "data_zip_dir") == 0){
         if(value == NULL){return 1;}
         data_zip_dir = value;
+        DBG_printf("%s: data_zip_dir is at %s\n", __FILE__, data_zip_dir);
     }
     return 1;
 }
 
 
 const PHookEntry plugin_init(const char* config_path) {
+    if(ini_parse(config_path,parse_config,NULL) != 0){return NULL;}
+    head = NULL;
+    tail = NULL;
+    data_zip_dir = getenv("PRO1_DATA_ZIP_DIR");
+    return entries;
 }
