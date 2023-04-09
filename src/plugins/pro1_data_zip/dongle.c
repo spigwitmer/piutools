@@ -29,7 +29,26 @@ int derive_aes_key_from_ds1963s(const enc_zip_file_header *h, uint8_t out[24]) {
     return ds1963s_compute_data_sha(scratchpadWorkspace, out);
 }
 
-int ds1963s_compute_data_sha(const uint8_t *input, uint8_t *out) {
-    // XXX do ibutton shiz here
-    return 0;
+int ds1963s_compute_data_sha(const uint8_t *input, uint8_t out[24]) {
+	uchar firstDataPage[32], firstScratchPad[32];
+	SHACopr copr;
+
+	memcpy(firstDataPage, input, 32);
+
+	if ((copr.portnum = owAcquireEx("/dev/ttyS0")) == -1) {
+		DBG_printf("getKey(): failed to acquire port.\nCheck to see that:\n=== [stupid boxor dongle meme goes here]\n");
+		return -1;
+	}
+	FindNewSHA(copr.portnum, copr.devAN, TRUE);
+	owSerialNum(copr.portnum, copr.devAN, FALSE);
+	WriteDataPageSHA18(copr.portnum, 0, firstDataPage, 0);
+	memset(firstScratchPad, '\0', 32);
+	memcpy(firstScratchPad+8, input+32, 15);
+	WriteScratchpadSHA18(copr.portnum, 0, firstScratchPad, 32, 1);
+	SHAFunction18(copr.portnum, SHA_SIGN_DATA_PAGE, 0, 1);
+	ReadScratchpadSHA18(copr.portnum, 0, 0, firstScratchPad, 1);
+	memset(firstDataPage, '\0', 32);
+	WriteDataPageSHA18(copr.portnum, 0, firstDataPage, 0);
+	memcpy(out, firstScratchPad+8, 24);
+	return 0;
 }

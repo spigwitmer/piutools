@@ -148,7 +148,7 @@ zip_enc_context *create_new_context(const char *path, int fd) {
     AES_init_ctx(&ctx->aes_ctx, ctx->aes_key);
     AES_ECB_encrypt(&ctx->aes_ctx, salted);
     for (int i = 0; i < 16; i++) {
-        ctx->header->verify_block[i] = salted[i] ^ verify_block_plaintext[i];
+        ctx->header->verify_block[i] = verify_block_plaintext[i] ^ salted[i];
     }
     generate_random_bytes(ctx->sig, sizeof(ctx->sig));
 
@@ -224,22 +224,26 @@ int pro1_data_zip_open(const char *path, int flags, ...) {
     }
 }
 
-void uint128_add(uint8_t add_to[16], const unsigned int to_add) {
+/* cheeso way of adding unsigned integer to_add to a 128-bit unsigned integer
+ * represented in little-endian format by the bytes add_to */
+void uint128_le_add(uint8_t add_to[16], const unsigned int to_add) {
     int carry = 0;
-    for (int j = 15; j >= 0; j--) {
-        if (j < 12) {
+    for (int j = 0; j < 16; j++) {
+        if (j > 3) {
             if (add_to[j] == 255 && carry == 1) {
                 add_to[j] = 0;
             } else {
                 carry = 0;
             }
         } else {
-            uint8_t segmented_addition = (to_add & (0xff << ((15-j)*8))) >> ((15-j)*8);
+            uint8_t segmented_addition = (to_add & (0xff << ((j)*8))) >> ((j)*8);
             uint8_t oldcarry = add_to[j];
 
             add_to[j] += segmented_addition + carry;
             if ((int)segmented_addition + (int)oldcarry > 255) {
                 carry = 1;
+            } else {
+                carry = 0;
             }
         }
     }   
@@ -288,7 +292,7 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
         unsigned int block_start = encrypted_data_pos / 16;
         // prepare salt
         memcpy(salt_copy, zip_ctx->header->salt, sizeof salt_copy);
-        uint128_add(salt_copy, block_start);
+        uint128_le_add(salt_copy, block_start);
 
         next_lseek(fd, block_start * 16, SEEK_SET);
 
@@ -309,7 +313,7 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
 
             memcpy(dsalted, salt_copy, sizeof dsalted);
             AES_ECB_encrypt(&zip_ctx->aes_ctx, dsalted);
-            uint128_add(salt_copy, 1);
+            uint128_le_add(salt_copy, 1);
             int bytes_to_process = min(encrypted_data_remaining, 16);
             for (int j = skip_bytes_in_first_block; j < bytes_to_process; j++) {
                 *((uint8_t *)(buf+got)) = dsalted[j] ^ decbuf[j];
