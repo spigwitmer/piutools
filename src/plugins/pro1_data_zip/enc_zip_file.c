@@ -5,13 +5,7 @@
 #include <unistd.h>
 #include "plugin_sdk/dbg.h"
 #include "enc_zip_file.h"
-
-void generate_random_bytes(uint8_t *buf, int count) {
-    for (int i = 0; i < count; i++) {
-        buf[i] = rand() % 255;
-    }
-}
-
+#include "util.h"
 
 enc_zip_file_header *generate_header(int fd) {
     enc_zip_file_header *header = (enc_zip_file_header *)malloc(sizeof(enc_zip_file_header));
@@ -27,9 +21,9 @@ enc_zip_file_header *generate_header(int fd) {
 
     // get file size
     off_t curpos;
-    curpos = lseek(fd, SEEK_CUR, 0);
+    curpos = lseek(fd, 0, SEEK_CUR);
     header->file_size = lseek(fd, 0, SEEK_END);
-    lseek(fd, SEEK_SET, curpos);
+    lseek(fd, curpos, SEEK_SET);
 
     return header;
 }

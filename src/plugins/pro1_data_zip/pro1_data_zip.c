@@ -3,6 +3,7 @@
  * zips for Pump Pro 1
  */
 #include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -21,17 +22,20 @@
 #include "plugin_sdk/ini.h"
 #include "plugin_sdk/plugin.h"
 #include "plugin_sdk/PIUTools_Filesystem.h"
+#include "util.h"
 
 #define min(x,y) ((x) > (y) ? (y) : (x))
 
-typedef int (*open_func_t)(const char *, int, mode_t);
+typedef int (*open_func_t)(const char *, int, ...);
 open_func_t next_open;
 typedef ssize_t (*read_func_t)(int, void *, size_t);
 read_func_t next_read;
 typedef int (*lseek_func_t)(int, off_t, int);
 lseek_func_t next_lseek;
+typedef int (*close_func_t)(int);
+close_func_t next_close;
 
-static const char *data_zip_dir;
+static char data_zip_dir[PATH_MAX];
 
 /**
  * bookkeeping for each opened file
@@ -146,6 +150,7 @@ zip_enc_context *create_new_context(const char *path, int fd) {
     for (int i = 0; i < 16; i++) {
         ctx->header->verify_block[i] = salted[i] ^ verify_block_plaintext[i];
     }
+    generate_random_bytes(ctx->sig, sizeof(ctx->sig));
 
     ctx->next = NULL;
     if (head == NULL) {
@@ -190,15 +195,17 @@ int is_data_zip_file(const char *path) {
         fprintf(stderr, "Cannot resolve full path for %s: %s\n", path, strerror(errno));
         return 0;
     }
-    // TODO: check if it file ends in .zip?
+    if (strncmp(path+strlen(path)-4, ".zip", 4) != 0) {
+        return 0;
+    }
     return (strstr(fullpath, data_zip_dir) == fullpath) ? 1 : 0;
 }
 
 /* determines if it's a data zip file and registers a context with it */
-int pro1_data_zip_open(const char *path, int flags, mode_t mode) {
+int pro1_data_zip_open(const char *path, int flags, ...) {
     if (is_data_zip_file(path)) {
         zip_enc_context *zip_ctx = find_context_by_path(path);
-        int fd = next_open(path, flags, mode);
+        int fd = next_open(path, flags);
         if (fd == -1) {
             perror("open()");
             return -1;
@@ -213,7 +220,7 @@ int pro1_data_zip_open(const char *path, int flags, mode_t mode) {
         zip_ctx->pos = 0;
         return fd;
     } else {
-        return next_open(path, flags, mode);
+        return next_open(path, flags);
     }
 }
 
@@ -241,19 +248,26 @@ void uint128_add(uint8_t add_to[16], const unsigned int to_add) {
 ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
     // fool the client into reading additional data before or after the
     // file itself such as the crypt header or file signature
-    size_t remaining = count;
-    off_t data_start = sizeof(enc_zip_file_header), sig_start;
-    int got = 0;
-    // XXX
-    DBG_printf("XXX bypassing to next_read(%d, x, %d)\n", fd, count);
-    return next_read(fd, buf, count);
+
+    size_t remaining = count; // how much of the buffer is remaining
+    // position in our fake file where the encrypted data starts
+    off_t data_start = sizeof(enc_zip_file_header),
+          // position in our fake file where the signature starts
+          sig_start, sig_end;
+    ssize_t got = 0;
     zip_enc_context *zip_ctx = find_context_by_fd(fd);
     if (remaining == 0 || zip_ctx == NULL) {
         return next_read(fd, buf, count);
     }
     sig_start = data_start + zip_ctx->header->file_size;
+    // the encrypted data contents have to be a multiple of 16
+    if (zip_ctx->header->file_size % 16 > 0) {
+        sig_start += 16 - (zip_ctx->header->file_size % 16);
+    }
+    sig_end = sig_start + sizeof(zip_ctx->sig);
 
     if (zip_ctx->pos < data_start) {
+        DBG_printf("(pos:%d) reading out header\n", zip_ctx->pos);
         // read header first if applicable
         size_t header_count = min(remaining, data_start-zip_ctx->pos);
         memcpy(buf, (void *)(zip_ctx->header)+zip_ctx->pos, header_count);
@@ -262,59 +276,57 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
         got += header_count;
     }
     if (zip_ctx->pos < sig_start && remaining > 0) {
-        // read encrypted data in 4080-byte blocks, as the key is
-        // reset every 4080 bytes
-
-        // how much data is left for us to read
+        DBG_printf("(pos:%d) reading out data\n", zip_ctx->pos);
+        // how much data we're going to process, clamped to how much data
+        // is actually available
         size_t encrypted_data_remaining = min(remaining, sig_start-zip_ctx->pos);
+        size_t plaintext_remaining = (data_start + zip_ctx->header->file_size) - zip_ctx->pos;
         // the position in the data section of our "container" file
         off_t encrypted_data_pos = zip_ctx->pos - data_start;
-        uint8_t salt_copy[16], decbuf[4080], dsalted[16];
-        size_t read_block_size = 4080 - (encrypted_data_pos % 4080);
-        int crypt_operations_in_block = read_block_size / 16;
-        if (read_block_size % 16 > 0) {
-            crypt_operations_in_block++;
-        }
+        uint8_t salt_copy[16], decbuf[16], dsalted[16];
+        int skip_bytes_in_first_block = encrypted_data_pos % 16;
+        unsigned int block_start = encrypted_data_pos / 16;
         // prepare salt
         memcpy(salt_copy, zip_ctx->header->salt, sizeof salt_copy);
-        unsigned int block_start = encrypted_data_pos / 16;
-		uint128_add(salt_copy, block_start);
-        lseek(fd, encrypted_data_pos, SEEK_SET);
+        uint128_add(salt_copy, block_start);
+
+        next_lseek(fd, block_start * 16, SEEK_SET);
+
         // encrypt contained data
         while (encrypted_data_remaining > 0) {
-            DBG_printf("%s: encrypted_data_remaining=%d\n", __FUNCTION__, encrypted_data_remaining, zip_ctx->pos);
-            int crypt_got = next_read(fd, decbuf, read_block_size);
+            int crypt_expected = min(16, plaintext_remaining);
+            int crypt_got = next_read(fd, decbuf, crypt_expected);
             if (crypt_got == -1) {
                 perror("read()");
                 return -1;
             }
-            if (crypt_got == 0) {
-                DBG_printf("%s: Why is crypt_got 0????\n", __FUNCTION__);
+            if (crypt_got != crypt_expected) {
+                // TODO: should be able to handle such a scenario
+                fprintf(stderr, "read(): expected %d, got %d\n", crypt_expected, crypt_got);
                 return -1;
             }
-            int num_crypt_operations = crypt_got / 16;
-            if (crypt_got % 16 > 0) {
-                num_crypt_operations++;
+            plaintext_remaining -= crypt_expected;
+
+            memcpy(dsalted, salt_copy, sizeof dsalted);
+            AES_ECB_encrypt(&zip_ctx->aes_ctx, dsalted);
+            uint128_add(salt_copy, 1);
+            int bytes_to_process = min(encrypted_data_remaining, 16);
+            for (int j = skip_bytes_in_first_block; j < bytes_to_process; j++) {
+                *((uint8_t *)(buf+got)) = dsalted[j] ^ decbuf[j];
+                got++;
+                remaining--;
+                encrypted_data_remaining--;
+                zip_ctx->pos++;
             }
-            for (int i = 0; i < num_crypt_operations; i++) {
-                memcpy(dsalted, salt_copy, sizeof dsalted);
-                AES_ECB_encrypt(&zip_ctx->aes_ctx, dsalted);
-				uint128_add(salt_copy, 1);
-                for (int j = 0; j < 16; j++) {
-                    *((uint8_t *)(buf+got)) = dsalted[j] ^ decbuf[i*16+j];
-                    got++;
-                    remaining--;
-                    encrypted_data_remaining--;
-                    encrypted_data_pos++;
-                    zip_ctx->pos++;
-                }
-            }
-            read_block_size = 4080 - (encrypted_data_pos % 4080);
+            skip_bytes_in_first_block = 0;
         }
+        DBG_printf("%s: done reading out encrypted data for %d (%s)\n", __FUNCTION__, fd, zip_ctx->pathname);
     }
     if (zip_ctx->pos >= sig_start && remaining > 0) {
         // read signature
-        size_t read_from_sig = min(remaining, sizeof(zip_ctx->sig));
+        size_t sig_available = sig_end - zip_ctx->pos;
+        size_t read_from_sig = min(sig_available, min(remaining, sizeof(zip_ctx->sig)));
+        DBG_printf("(pos:%d) reading out sig (read_from_sig:%d)\n", zip_ctx->pos, read_from_sig);
         memcpy(buf+got, (void *)zip_ctx->sig, read_from_sig);
         zip_ctx->pos += read_from_sig;
         got += read_from_sig;
@@ -342,17 +354,27 @@ int pro1_data_zip_lseek(int fd, off_t offset, int whence) {
     return zip_ctx->pos;
 }
 
+int pro1_data_zip_close(int fd) {
+    /* scrub the fd from the list */
+    zip_enc_context *zip_ctx = find_context_by_fd(fd);
+    if (zip_ctx != NULL) {
+        zip_ctx->fd = 0;
+    }
+    return next_close(fd);
+}
+
 static HookEntry entries[] = {
     HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "open", pro1_data_zip_open, &next_open, 1),
     HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "read", pro1_data_zip_read, &next_read, 1),
     HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "lseek", pro1_data_zip_lseek, &next_lseek, 1),
+    HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "close", pro1_data_zip_close, &next_close, 1),
     {}    
 };
 
 static int parse_config(void* user, const char* section, const char* name, const char* value){
     if(strcmp(section,"PRO1_DATA_ZIP") == 0 && strcmp(name, "data_zip_dir") == 0){
         if(value == NULL){return 1;}
-        data_zip_dir = value;
+        strncpy(data_zip_dir, value, strnlen(value, sizeof(data_zip_dir)));
         DBG_printf("%s: data_zip_dir is at %s\n", __FILE__, data_zip_dir);
     }
     return 1;
@@ -363,6 +385,6 @@ const PHookEntry plugin_init(const char* config_path) {
     if(ini_parse(config_path,parse_config,NULL) != 0){return NULL;}
     head = NULL;
     tail = NULL;
-    data_zip_dir = getenv("PRO1_DATA_ZIP_DIR");
+    //data_zip_dir = getenv("PRO1_DATA_ZIP_DIR");
     return entries;
 }
