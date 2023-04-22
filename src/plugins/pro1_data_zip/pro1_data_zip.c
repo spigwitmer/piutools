@@ -46,10 +46,6 @@ typedef struct zip_enc_context {
     struct AES_ctx aes_ctx;
     enc_zip_file_header *header;
     struct zip_enc_context *next;
-    // each data zip has a signature file that is signed by the private
-    // key linked to /Data/public.rsa (the validation of which is
-    // exptected to be thwarted in another plugin)
-    uint8_t sig[128];
 } zip_enc_context;
 
 static zip_enc_context *head = NULL, *tail = NULL;
@@ -148,7 +144,6 @@ zip_enc_context *create_new_context(const char *path, int fd) {
     for (int i = 0; i < 16; i++) {
         ctx->header->verify_block[i] = verify_block_plaintext[i] ^ salted[i];
     }
-    generate_random_bytes(ctx->sig, sizeof(ctx->sig));
 
     ctx->next = NULL;
     if (head == NULL) {
@@ -253,20 +248,18 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
 
     size_t remaining = count; // how much of the buffer is remaining
     // position in our fake file where the encrypted data starts
-    off_t data_start = sizeof(enc_zip_file_header),
-          // position in our fake file where the signature starts
-          sig_start, sig_end;
+    off_t data_start = sizeof(enc_zip_file_header);
     ssize_t got = 0;
     zip_enc_context *zip_ctx = find_context_by_fd(fd);
     if (remaining == 0 || zip_ctx == NULL) {
         return next_read(fd, buf, count);
     }
-    sig_start = data_start + zip_ctx->header->file_size;
-    // the encrypted data contents have to be a multiple of 16
-    if (zip_ctx->header->file_size % 16 > 0) {
-        sig_start += 16 - (zip_ctx->header->file_size % 16);
-    }
-    sig_end = sig_start + sizeof(zip_ctx->sig);
+
+	off_t data_end = data_start + zip_ctx->header->file_size;
+	// the encrypted data contents have to be a multiple of 16
+	if (zip_ctx->header->file_size % 16 > 0) {
+		data_end += 16 - (zip_ctx->header->file_size % 16);
+	}
 
     if (zip_ctx->pos < data_start) {
         DBG_printf("(pos:%d) reading out header\n", zip_ctx->pos);
@@ -277,17 +270,18 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
         zip_ctx->pos += header_count;
         got += header_count;
     }
-    if (zip_ctx->pos < sig_start && remaining > 0) {
+    if (remaining > 0) {
         DBG_printf("(pos:%d) reading out data\n", zip_ctx->pos);
         // how much data we're going to process, clamped to how much data
         // is actually available
-        size_t encrypted_data_remaining = min(remaining, sig_start-zip_ctx->pos);
+        size_t encrypted_data_remaining = min(remaining, data_end-zip_ctx->pos);
         size_t plaintext_remaining = (data_start + zip_ctx->header->file_size) - zip_ctx->pos;
         // the position in the data section of our "container" file
         off_t encrypted_data_pos = zip_ctx->pos - data_start;
         uint8_t salt_copy[16], decbuf[16], dsalted[16];
         int skip_bytes_in_first_block = encrypted_data_pos % 16;
         unsigned int block_start = encrypted_data_pos / 16;
+
         // prepare salt
         memcpy(salt_copy, zip_ctx->header->salt, sizeof salt_copy);
         uint128_le_add(salt_copy, block_start);
@@ -324,15 +318,6 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
         }
         DBG_printf("%s: done reading out encrypted data for %d (%s)\n", __FUNCTION__, fd, zip_ctx->pathname);
     }
-    if (zip_ctx->pos >= sig_start && remaining > 0) {
-        // read signature
-        size_t sig_available = sig_end - zip_ctx->pos;
-        size_t read_from_sig = min(sig_available, min(remaining, sizeof(zip_ctx->sig)));
-        DBG_printf("(pos:%d) reading out sig (read_from_sig:%d)\n", zip_ctx->pos, read_from_sig);
-        memcpy(buf+got, (void *)zip_ctx->sig, read_from_sig);
-        zip_ctx->pos += read_from_sig;
-        got += read_from_sig;
-    }
     return got;
 }
 
@@ -342,17 +327,30 @@ int pro1_data_zip_lseek(int fd, off_t offset, int whence) {
         return next_lseek(fd, offset, whence);
     }
 
+    off_t new_offset = 0;
+    size_t zip_size = sizeof(enc_zip_file_header) + zip_ctx->header->file_size;
+    if (zip_ctx->header->file_size % 16 > 0) {
+        zip_size += (16 - (zip_ctx->header->file_size % 16));
+    }
+
     switch (whence) {
     case SEEK_SET:
-        zip_ctx->pos = offset;
+        new_offset = offset;
         break;
     case SEEK_CUR:
-        zip_ctx->pos += offset;
+        new_offset = zip_ctx->pos + offset;
         break;
     case SEEK_END:
-        zip_ctx->pos = sizeof(enc_zip_file_header) + zip_ctx->header->file_size + sizeof(zip_ctx->sig) + offset;
+        new_offset = zip_size + offset;
         break;
     }
+
+    if (new_offset > zip_size) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+
+    zip_ctx->pos = new_offset;
     return zip_ctx->pos;
 }
 
