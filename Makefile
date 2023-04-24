@@ -96,7 +96,12 @@ PRO1_DATA_ZIP_OW_SOURCES := src/plugins/pro1_data_zip/ow/crcutil.c \
 							src/plugins/pro1_data_zip/ow/shaib.c
 
 PRO1_DATA_ZIP_SOURCES := src/plugins/pro1_data_zip/pro1_data_zip.c \
-						 src/plugins/pro1_data_zip/base64.c
+						 src/plugins/pro1_data_zip/aes.c \
+						 src/plugins/pro1_data_zip/base64.c \
+						 src/plugins/pro1_data_zip/dongle.c \
+						 src/plugins/pro1_data_zip/enc_zip_file.c \
+						 src/plugins/pro1_data_zip/sha1.c \
+						 src/plugins/pro1_data_zip/util.c
 
 $(PLUGIN_BUILD_ROOT)/pro1_data_zip.plugin: $(PRO1_DATA_ZIP_OW_SOURCES) $(PRO1_DATA_ZIP_SOURCES)
 	cc -shared -m32 -fPIC $(CFLAGS) $(PRO1_DATA_ZIP_SOURCES) $(PRO1_DATA_ZIP_OW_SOURCES) $(PLUGIN_INCLUDES) -o $(PLUGIN_BUILD_ROOT)/$@
