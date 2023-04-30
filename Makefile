@@ -19,10 +19,7 @@ all: $(BUILD_ROOT)/piutools.so plugins
 dist:
 	mkdir -p ./dist
 	cp -R ./ext/* ./dist/
-	cp -R ./build/* ./dist/
-
-$(BUILD_ROOT):
-	mkdir -p $@
+	if [ -d ./build ]; then cp -R ./build/* ./dist/; fi
 
 .PHONY: piutools.so
 piutools.so: $(BUILD_ROOT)/piutools.so
@@ -37,7 +34,7 @@ GENERIC_PLUGINS := asound ata_hdd ata_hdd_infinity eeprom exec_blocker fake_libu
 		   io_buttonboard io_mk5io io_mk6io locale lockchip \
 		   network pit s3d_opengl sighandler statfix system_info \
 		   ticket_dispenser
-PLUGINS := ds1963s_in_ds2480b microdog stlfix usb_profile x11_keyboard_input $(GENERIC_PLUGINS)
+PLUGINS := ds1963s_in_ds2480b pro1_data_zip microdog stlfix usb_profile x11_keyboard_input $(GENERIC_PLUGINS)
 PLUGIN_OBJS := $(patsubst %,$(PLUGIN_BUILD_ROOT)/%.plugin,$(PLUGINS))
 
 .PHONY: plugins
@@ -82,7 +79,7 @@ DS1963S_IN_DS2480B_SOURCES := src/plugins/ds1963s_in_ds2480b/ds1963s_in_ds2480b.
 							  src/plugins/ds1963s_in_ds2480b/base64.c
 
 $(PLUGIN_BUILD_ROOT)/ds1963s_in_ds2480b.plugin: $(DS1963S_UTILS_SOURCES) $(DS1963S_IN_DS2480B_SOURCES)
-	cc -shared -m32 -fPIC $(CFLAGS) $(DS1963s_IN_DS2480B_SOURCES) $(DS1963S_UTILS_SOURCES) $(PLUGIN_INCLUDES) -lpthread -I src/plugins/ds1963s_in_ds2480b/ds1963s-utils/src -o $@
+	cc -shared -m32 -fPIC $(CFLAGS) $(DS1963S_IN_DS2480B_SOURCES) $(DS1963S_UTILS_SOURCES) $(PLUGIN_INCLUDES) -lpthread -I src/plugins/ds1963s_in_ds2480b/ds1963s-utils/src -o $@
 
 PRO1_DATA_ZIP_OW_SOURCES := src/plugins/pro1_data_zip/ow/crcutil.c \
 							src/plugins/pro1_data_zip/ow/ds2480ut.c \
@@ -97,14 +94,13 @@ PRO1_DATA_ZIP_OW_SOURCES := src/plugins/pro1_data_zip/ow/crcutil.c \
 
 PRO1_DATA_ZIP_SOURCES := src/plugins/pro1_data_zip/pro1_data_zip.c \
 						 src/plugins/pro1_data_zip/aes.c \
-						 src/plugins/pro1_data_zip/base64.c \
 						 src/plugins/pro1_data_zip/dongle.c \
 						 src/plugins/pro1_data_zip/enc_zip_file.c \
 						 src/plugins/pro1_data_zip/sha1.c \
 						 src/plugins/pro1_data_zip/util.c
 
 $(PLUGIN_BUILD_ROOT)/pro1_data_zip.plugin: $(PRO1_DATA_ZIP_OW_SOURCES) $(PRO1_DATA_ZIP_SOURCES)
-	cc -shared -m32 -fPIC $(CFLAGS) $(PRO1_DATA_ZIP_SOURCES) $(PRO1_DATA_ZIP_OW_SOURCES) $(PLUGIN_INCLUDES) -o $(PLUGIN_BUILD_ROOT)/$@
+	cc -shared -m32 -fPIC $(CFLAGS) $(PRO1_DATA_ZIP_SOURCES) $(PRO1_DATA_ZIP_OW_SOURCES) $(PLUGIN_INCLUDES) -o $@
 
 .PHONY: clean
 clean:

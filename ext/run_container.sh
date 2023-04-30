@@ -96,6 +96,8 @@ piutools_tmp=$piutools_root/tmp
 
 #run_command= RUN_STRACE, RUN_GDB, RUN_GAME,RUN_LTRACE
 
+img_name="${PIUTOOLS_CONTAINER_IMG_NAME:-"pumpos_classic"}"
+
 docker_args="run --device /dev/fuse --cap-add SYS_ADMIN --rm -it"
 # Add the Graphics Support Stuff
 docker_args+=" --gpus all -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY"
