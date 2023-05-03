@@ -7,10 +7,11 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <signal.h>
 #include <string.h>
 #include <sys/types.h>
-#ifdef WINDOWS
-#error "Windows is not currently supported"
+#ifdef WIN32
+#define PATH_MAX 4096
 #else
 #include <linux/limits.h>
 #endif
@@ -22,8 +23,6 @@
 #include "PIUTools_Debug.h"
 #include "util.h"
 
-#define min(x,y) ((x) > (y) ? (y) : (x))
-
 typedef int (*open_func_t)(const char *, int, ...);
 open_func_t next_open;
 typedef ssize_t (*read_func_t)(int, void *, size_t);
@@ -34,24 +33,6 @@ typedef int (*close_func_t)(int);
 close_func_t next_close;
 
 static char data_zip_dir[PATH_MAX];
-
-/**
- * bookkeeping for each opened file
- */
-typedef struct zip_enc_context {
-    char *pathname;
-    int fd;
-    off_t pos;
-    uint8_t aes_key[24];
-    struct AES_ctx aes_ctx;
-    enc_zip_file_header *header;
-    struct zip_enc_context *next;
-    // each data zip can have a signature field at the end
-    // that is created by a keypair internal to FiM. The public bits are
-    // hardcoded in the piu binary. This is followed by a magic "SRSLY"
-    // footer.
-    uint8_t sig[128+5];
-} zip_enc_context;
 
 static zip_enc_context *head = NULL, *tail = NULL;
 
@@ -149,8 +130,7 @@ zip_enc_context *create_new_context(const char *path, int fd) {
     for (int i = 0; i < 16; i++) {
         ctx->header->verify_block[i] = verify_block_plaintext[i] ^ salted[i];
     }
-    generate_random_bytes(ctx->sig, sizeof(ctx->sig)-5);
-    // TODO: fill in real sig
+	generate_file_signature(ctx, fd, ctx->sig);
     memcpy(&ctx->sig[sizeof(ctx->sig)-5], "SRSLY", 5);
 
     ctx->next = NULL;
@@ -381,24 +361,28 @@ int pro1_data_zip_close(int fd) {
     return next_close(fd);
 }
 
-typedef void *(string_cons_hook_func)(void *, const char*, unsigned int, void *);
+typedef void *(*string_cons_hook_func)(void *, const char*, unsigned int, void *);
 string_cons_hook_func next_string_cons;
 
-static int hit = 0;
+static int pubkey_intercepted = 0;
 
 void *pro1_data_zip_string_cons_hook(void *this, const char *str, unsigned int size, void *alloc) {
-    if (hit == 0) {
-        DBG_printf("[%s:%d] **HIT**\n", __FILE__, __LINE__);
-        hit = 1;
+    if (size == sizeof(their_pubkey) && pubkey_intercepted == 0) {
+        if (memcmp(str, their_pubkey, sizeof(their_pubkey)) == 0) {
+            DBG_printf("[%s:%d] injecting our own public key\n", __FILE__, __LINE__, str);
+            return next_string_cons(this, our_pubkey, size, alloc);
+        }
+        raise(SIGTRAP);
+        hit++;
     }
     return next_string_cons(this, str, size, alloc);
 }
 
 static HookEntry entries[] = {
-    HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "open", pro1_data_zip_open, &next_open, 1),
-    HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "read", pro1_data_zip_read, &next_read, 1),
-    HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "lseek", pro1_data_zip_lseek, &next_lseek, 1),
-    HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "close", pro1_data_zip_close, &next_close, 1),
+    //HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "open", pro1_data_zip_open, &next_open, 1),
+    //HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "read", pro1_data_zip_read, &next_read, 1),
+    //HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "lseek", pro1_data_zip_lseek, &next_lseek, 1),
+    //HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "close", pro1_data_zip_close, &next_close, 1),
 
     // std::string::string(char const*,uint,std::allocator<char> const&)
     HOOK_ENTRY(HOOK_TYPE_IMPORT, HOOK_TARGET_BASE_EXECUTABLE, "libstdc++.so.5", "_ZNSsC2EPKcjRKSaIcE", pro1_data_zip_string_cons_hook, &next_string_cons, 1),

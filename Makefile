@@ -17,7 +17,7 @@ all: $(BUILD_ROOT)/piutools.so plugins
 
 .PHONY: dist
 dist:
-	mkdir -p ./dist
+	mkdir -p ./dist/plugins
 	cp -R ./ext/* ./dist/
 	if [ -d ./build ]; then cp -R ./build/* ./dist/; fi
 
@@ -44,7 +44,7 @@ $(PLUGIN_BUILD_ROOT):
 	mkdir -p $(PLUGIN_BUILD_ROOT)
 
 define generic_plugin_build
-$(PLUGIN_BUILD_ROOT)/$(1).plugin: $$(wildcard src/plugins/$(1)/*.c) | $(PLUGIN_BUILD_ROOT)
+$(PLUGIN_BUILD_ROOT)/$(1).plugin: $$(wildcard src/plugins/$(1)/*.c) | $(BUILD_ROOT)
 	cc -shared -m32 -fPIC $(CFLAGS) $$^ $(PLUGIN_INCLUDES) -o $$@
 endef
 
@@ -99,8 +99,16 @@ PRO1_DATA_ZIP_SOURCES := src/plugins/pro1_data_zip/pro1_data_zip.c \
 						 src/plugins/pro1_data_zip/sha1.c \
 						 src/plugins/pro1_data_zip/util.c
 
+# XXX This will probably be the most permanent temporary fix ever
+ifeq ($(shell uname -m),i386)
+	LTC_OBJS := src/plugins/pro1_data_zip/ltc/linux_x86/libtomcrypt.a \
+				src/plugins/pro1_data_zip/ltc/linux_x86/libtommath.a
+else
+	LTC_OBJS := -ltomcrypt -ltommath
+endif
+
 $(PLUGIN_BUILD_ROOT)/pro1_data_zip.plugin: $(PRO1_DATA_ZIP_OW_SOURCES) $(PRO1_DATA_ZIP_SOURCES)
-	cc -shared -m32 -fPIC $(CFLAGS) $(PRO1_DATA_ZIP_SOURCES) $(PRO1_DATA_ZIP_OW_SOURCES) $(PLUGIN_INCLUDES) -o $@
+	cc -shared -m32 -fPIC $(CFLAGS) $(PRO1_DATA_ZIP_SOURCES) $(PRO1_DATA_ZIP_OW_SOURCES) $(LTC_OBJS) $(PLUGIN_INCLUDES) -o $@
 
 .PHONY: clean
 clean:
