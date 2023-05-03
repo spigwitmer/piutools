@@ -52,7 +52,7 @@ int PIUTools_Hook_GetFunctionAddress(const char* library_name, const char* funct
     // If we didn't specify a place to store the function address, we can't do anything.
     if (pfunction_address == NULL) { 
         errno = EINVAL;
-        DBG_printf("[%s] Error: %s", __FUNCTION__, strerror(errno));
+        DBG_printf("[%s] (%s:%s) Error: %s", __FUNCTION__, library_name, function_name, strerror(errno));
         return 0; 
     }
     
@@ -61,7 +61,7 @@ int PIUTools_Hook_GetFunctionAddress(const char* library_name, const char* funct
     void* hLibrary = dlopen(library_name, RTLD_LAZY);
     if(hLibrary == NULL){
         errno = EACCES;
-        DBG_printf("[%s] Error: %s", __FUNCTION__, strerror(errno));
+        DBG_printf("[%s] (%s:%s) Error: %s", __FUNCTION__, library_name, function_name, strerror(errno));
         return 0;
     }
     // Resolve our Symbol
@@ -69,7 +69,7 @@ int PIUTools_Hook_GetFunctionAddress(const char* library_name, const char* funct
     // If we didn't resolve our symbol - die.
     if(*pfunction_address == NULL){
         errno = EINVAL;
-        DBG_printf("[%s] Error: %s", __FUNCTION__, strerror(errno));
+        DBG_printf("[%s] (%s:%s) Error: %s", __FUNCTION__, library_name, function_name, strerror(errno));
         return 0;
     }
 
