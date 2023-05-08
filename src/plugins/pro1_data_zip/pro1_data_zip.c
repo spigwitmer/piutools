@@ -34,6 +34,24 @@ close_func_t next_close;
 
 static char data_zip_dir[PATH_MAX];
 
+/**
+ * bookkeeping for each opened file
+ */
+typedef struct zip_enc_context {
+    char *pathname;
+    int fd;
+    off_t pos;
+    uint8_t aes_key[24];
+    struct AES_ctx aes_ctx;
+    enc_zip_file_header *header;
+    struct zip_enc_context *next;
+    // each data zip can have a signature field at the end
+    // that is created by a keypair internal to FiM. The public bits are
+    // hardcoded in the piu binary. This is followed by a magic "SRSLY"
+    // footer.
+    uint8_t sig[128+5];
+} zip_enc_context;
+
 static zip_enc_context *head = NULL, *tail = NULL;
 
 // ugly routine yanked from sm-ac-tools
@@ -366,14 +384,16 @@ string_cons_hook_func next_string_cons;
 
 static int pubkey_intercepted = 0;
 
+/**
+ * string constructor hook
+ */
 void *pro1_data_zip_string_cons_hook(void *this, const char *str, unsigned int size, void *alloc) {
     if (size == sizeof(their_pubkey) && pubkey_intercepted == 0) {
         if (memcmp(str, their_pubkey, sizeof(their_pubkey)) == 0) {
-            DBG_printf("[%s:%d] injecting our own public key\n", __FILE__, __LINE__, str);
+            DBG_printf("[%s:%d] injecting our own public key (0x%08x)\n", __FILE__, __LINE__, (unsigned int)str);
             return next_string_cons(this, our_pubkey, size, alloc);
         }
-        raise(SIGTRAP);
-        hit++;
+        pubkey_intercepted = 1;
     }
     return next_string_cons(this, str, size, alloc);
 }
