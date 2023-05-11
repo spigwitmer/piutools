@@ -99,13 +99,8 @@ PRO1_DATA_ZIP_SOURCES := src/plugins/pro1_data_zip/pro1_data_zip.c \
 						 src/plugins/pro1_data_zip/sha1.c \
 						 src/plugins/pro1_data_zip/util.c
 
-# XXX This will probably be the most permanent temporary fix ever
-ifeq ($(shell uname -m),i386)
-	LTC_OBJS := src/plugins/pro1_data_zip/ltc/linux_x86/libtomcrypt.a \
-				src/plugins/pro1_data_zip/ltc/linux_x86/libtommath.a
-else
-	LTC_OBJS := -ltomcrypt -ltommath
-endif
+LTC_OBJS := src/plugins/pro1_data_zip/ltc/linux_x86/libtomcrypt.a \
+			src/plugins/pro1_data_zip/ltc/linux_x86/libtommath.a
 
 $(PLUGIN_BUILD_ROOT)/pro1_data_zip.plugin: $(PRO1_DATA_ZIP_OW_SOURCES) $(PRO1_DATA_ZIP_SOURCES)
 	cc -shared -m32 -fPIC $(CFLAGS) $(PRO1_DATA_ZIP_SOURCES) $(PRO1_DATA_ZIP_OW_SOURCES) $(LTC_OBJS) $(PLUGIN_INCLUDES) -o $@
