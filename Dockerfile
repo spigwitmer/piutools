@@ -1,5 +1,5 @@
 # Use a rather old version of ubuntu to ensure compatibility regarding libc
-FROM --platform=linux/amd64 debian:9
+FROM --platform=linux/amd64 ubuntu:20.04
 LABEL description="Build environment for piutools"
 
 # Install build dependencies, multilib to get 32-bit versions
@@ -27,4 +27,4 @@ RUN rm -rf /var/lib/apt/lists/*
 RUN mkdir /piutools
 WORKDIR /piutools
 
-# docker build -t piutools_buildenv . 
+# docker build -t piutools_buildenv .
