@@ -19,6 +19,7 @@ RUN apt-get install -y libx11-dev:i386
 RUN apt-get install -y libcurl4-gnutls-dev:i386
 RUN apt-get install -y libglu1-mesa-dev:i386
 RUN apt-get install -y libgl1:i386
+RUN apt-get install -y sudo
 
 # Delete apt-cache to reduce image size
 RUN rm -rf /var/lib/apt/lists/*
@@ -26,5 +27,8 @@ RUN rm -rf /var/lib/apt/lists/*
 # Copy files for building to container
 RUN mkdir /piutools
 WORKDIR /piutools
+
+COPY entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
 
 # docker build -t piutools_buildenv .
