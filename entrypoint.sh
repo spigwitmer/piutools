@@ -11,7 +11,7 @@ if [ "x$MY_UID" != "x0" ]; then
     useradd -g $MY_UID someuser
     echo "running as sudo ($MY_UID:$MY_GID): $@"
     env
-    sudo -g somegroup -u someuser "$@"
+    sudo --preserve-env=CFLAGS -g somegroup -u someuser "$@"
 else
     exec "$@"
 fi
