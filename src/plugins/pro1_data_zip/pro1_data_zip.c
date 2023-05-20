@@ -196,6 +196,11 @@ int pro1_data_zip_open(const char *path, int flags, ...) {
         if (zip_ctx == NULL) {
             DBG_printf("%s: opening new data zip file (%s)\n", __FUNCTION__, path);
             zip_ctx = create_new_context(path, fd);
+            if (zip_ctx == NULL) {
+                fprintf(stderr, "[%s:%d] Could not create new data zip context for %s\n", __FILE__, __LINE__, path);
+                errno = EACCES;
+                return -1;
+            }
         } else {
             DBG_printf("%s: opening prior opened data zip file (%s)\n", __FUNCTION__, path);
             zip_ctx->fd = fd;
@@ -383,10 +388,10 @@ void *pro1_data_zip_string_cons_hook(void *this, const char *str, unsigned int s
 }
 
 static HookEntry entries[] = {
-    //HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "open", pro1_data_zip_open, &next_open, 1),
-    //HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "read", pro1_data_zip_read, &next_read, 1),
-    //HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "lseek", pro1_data_zip_lseek, &next_lseek, 1),
-    //HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "close", pro1_data_zip_close, &next_close, 1),
+    HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "open", pro1_data_zip_open, &next_open, 1),
+    HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "read", pro1_data_zip_read, &next_read, 1),
+    HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "lseek", pro1_data_zip_lseek, &next_lseek, 1),
+    HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "close", pro1_data_zip_close, &next_close, 1),
 
     // std::string::string(char const*,uint,std::allocator<char> const&)
     HOOK_ENTRY(HOOK_TYPE_IMPORT, HOOK_TARGET_BASE_EXECUTABLE, "libstdc++.so.5", "_ZNSsC2EPKcjRKSaIcE", pro1_data_zip_string_cons_hook, &next_string_cons, 1),

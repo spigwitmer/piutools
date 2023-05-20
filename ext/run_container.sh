@@ -122,12 +122,12 @@ docker_args+=" -e PIUTOOLS_EXE_PATH=$exe_path"
 docker_args+=" -e PIUTOOLS_EXE_ARGS=$exe_args"
 docker_args+=" -e PIUTOOLS_GAME_DIR=$exe_game_dir"
 docker_args+=" -e PIUTOOLS_DEBUG=1"
-docker_args+=" -e RUN_GAME=1"
-#docker_args+=" -e RUN_GDB=1"
-#docker_args+=" -e RUN_STRACE=1"
-#docker_args+=" -e RUN_LTRACE=1"
+docker_args+=" -e RUN_GAME=${RUN_GAME:-""}"
+docker_args+=" -e RUN_GDB=${RUN_GDB:-""}"
+docker_args+=" -e RUN_STRACE=${RUN_STRACE:-""}"
+docker_args+=" -e RUN_LTRACE=${RUN_STRACE:-""}"
 
-docker_args+=" pumpos_classic $piutools_bin/tools/bootstrap_game.sh"
+docker_args+=" ${img_name} $piutools_bin/tools/bootstrap_game.sh"
 
 echo $docker_args
 
