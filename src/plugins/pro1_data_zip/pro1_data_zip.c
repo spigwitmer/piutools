@@ -26,13 +26,13 @@
 #include "util.h"
 
 typedef int (*open_func_t)(const char *, int, ...);
-open_func_t next_open;
+static open_func_t next_open;
 typedef ssize_t (*read_func_t)(int, void *, size_t);
-read_func_t next_read;
+static read_func_t next_read;
 typedef int (*lseek_func_t)(int, off_t, int);
-lseek_func_t next_lseek;
+static lseek_func_t next_lseek;
 typedef int (*close_func_t)(int);
-close_func_t next_close;
+static close_func_t next_close;
 
 static char data_zip_dir[PATH_MAX];
 

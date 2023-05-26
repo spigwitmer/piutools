@@ -22,9 +22,9 @@
 
 /* file ops */
 typedef int (*open_func_t)(const char *, int);
-open_func_t next_open;
+static open_func_t next_open;
 typedef int (*close_func_t)(int);
-close_func_t next_close;
+static close_func_t next_close;
 
 static int cur_fd = -1;
 static char *pathname;
@@ -175,7 +175,6 @@ const PHookEntry plugin_init(){
         struct transport_pty_data *pdata;
         pdata = (struct transport_pty_data *)serial->private_data;
         pathname = pdata->pathname_slave;
-        //PIUTools_Filesystem_AddRedirect(DEFAULT_SERIAL_DEVICE,pathname);
         DBG_printf("[%s] Fake ds1963s ready at %s\n", __FILE__, pathname);
     }
 
