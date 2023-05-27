@@ -41,71 +41,71 @@ zip_enc_context *create_new_context(const char *path, int fd);
 
 // ugly routine yanked from sm-ac-tools
 void saltHash(uint8_t *salted, const uint8_t salt[16], int addition) {
-	int cSalt = 0, cSalt2 = 0, cSalt3 = 0;
+    int cSalt = 0, cSalt2 = 0, cSalt3 = 0;
 
-	cSalt = (int)(salt[0]);
-	cSalt2 = (int)(salt[1]);
-	cSalt3 = (int)(salt[9]);
-	cSalt += addition;
-	salted[0] = (char)cSalt;
-	cSalt >>= 8;
-	cSalt += cSalt2;
-	cSalt2 = (int)(salt[2]);
-	salted[1] = (char)cSalt;
-	cSalt >>= 8;
-	cSalt += cSalt2;
-	cSalt2 = (int)(salt[3]);
-	salted[2] = (char)cSalt;
-	cSalt >>= 8;
-	cSalt2 += cSalt;
-	cSalt = (int)(salt[4]);
-	salted[3] = (char)cSalt2;
-	cSalt2 >>= 8;
-	cSalt2 += cSalt;
-	cSalt = (int)(salt[5]);
-	salted[4] = (char)cSalt2;
-	cSalt2 >>= 8;
-	cSalt += cSalt2;
-	cSalt2 = (int)(salt[6]);
-	salted[5] = (char)cSalt;
-	cSalt >>= 8;
-	cSalt2 += cSalt;
-	cSalt = (int)(salt[7]);
-	salted[6] = (char)cSalt2;
-	cSalt2 >>= 8;
-	cSalt += cSalt2;
-	cSalt2 = (int)(salt[8]);
-	salted[7] = (char)cSalt;
-	cSalt >>= 8;
-	cSalt2 += cSalt;
-	cSalt = (int)(salt[10]);
-	salted[8] = (char)cSalt2;
-	cSalt2 >>= 8;
-	cSalt3 += cSalt2;
-	cSalt2 = (int)(salt[11]);
-	salted[9] = (char)cSalt3;
-	cSalt3 >>= 8;
-	cSalt += cSalt3;
-	salted[10] = cSalt;
-	cSalt >>= 8;
-	cSalt += cSalt2;
-	cSalt2 = (int)(salt[12]);
-	salted[11] = cSalt;
-	cSalt >>= 8;
-	cSalt += cSalt2;
-	cSalt2 = (int)(salt[13]);
-	salted[12] = cSalt;
-	cSalt >>= 8;
-	cSalt += cSalt2;
-	cSalt2 = (int)(salt[14]);
-	salted[13] = cSalt;
-	cSalt >>= 8;
-	cSalt2 += cSalt;
-	cSalt = (int)(salt[15]);
-	salted[14] = cSalt2;
-	cSalt2 >>= 8;
-	cSalt += cSalt2;
-	salted[15] = cSalt;
+    cSalt = (int)(salt[0]);
+    cSalt2 = (int)(salt[1]);
+    cSalt3 = (int)(salt[9]);
+    cSalt += addition;
+    salted[0] = (char)cSalt;
+    cSalt >>= 8;
+    cSalt += cSalt2;
+    cSalt2 = (int)(salt[2]);
+    salted[1] = (char)cSalt;
+    cSalt >>= 8;
+    cSalt += cSalt2;
+    cSalt2 = (int)(salt[3]);
+    salted[2] = (char)cSalt;
+    cSalt >>= 8;
+    cSalt2 += cSalt;
+    cSalt = (int)(salt[4]);
+    salted[3] = (char)cSalt2;
+    cSalt2 >>= 8;
+    cSalt2 += cSalt;
+    cSalt = (int)(salt[5]);
+    salted[4] = (char)cSalt2;
+    cSalt2 >>= 8;
+    cSalt += cSalt2;
+    cSalt2 = (int)(salt[6]);
+    salted[5] = (char)cSalt;
+    cSalt >>= 8;
+    cSalt2 += cSalt;
+    cSalt = (int)(salt[7]);
+    salted[6] = (char)cSalt2;
+    cSalt2 >>= 8;
+    cSalt += cSalt2;
+    cSalt2 = (int)(salt[8]);
+    salted[7] = (char)cSalt;
+    cSalt >>= 8;
+    cSalt2 += cSalt;
+    cSalt = (int)(salt[10]);
+    salted[8] = (char)cSalt2;
+    cSalt2 >>= 8;
+    cSalt3 += cSalt2;
+    cSalt2 = (int)(salt[11]);
+    salted[9] = (char)cSalt3;
+    cSalt3 >>= 8;
+    cSalt += cSalt3;
+    salted[10] = cSalt;
+    cSalt >>= 8;
+    cSalt += cSalt2;
+    cSalt2 = (int)(salt[12]);
+    salted[11] = cSalt;
+    cSalt >>= 8;
+    cSalt += cSalt2;
+    cSalt2 = (int)(salt[13]);
+    salted[12] = cSalt;
+    cSalt >>= 8;
+    cSalt += cSalt2;
+    cSalt2 = (int)(salt[14]);
+    salted[13] = cSalt;
+    cSalt >>= 8;
+    cSalt2 += cSalt;
+    cSalt = (int)(salt[15]);
+    salted[14] = cSalt2;
+    cSalt2 >>= 8;
+    cSalt += cSalt2;
+    salted[15] = cSalt;
 }
 
 static char *verify_block_plaintext = "<<abcdefghijklmn";
@@ -347,6 +347,8 @@ zip_enc_context *create_new_context(const char *path, int fd) {
     // derive key and verify block
     if (derive_aes_key_from_ds1963s(ctx->header, ctx->aes_key) != 0) {
         fprintf(stderr, "failed to derive AES key from ds1963s\n");
+        free(ctx->pathname);
+        free(ctx);
         return NULL;
     }
     saltHash(salted, ctx->header->salt, 0x123456);
@@ -355,7 +357,12 @@ zip_enc_context *create_new_context(const char *path, int fd) {
     for (int i = 0; i < 16; i++) {
         ctx->header->verify_block[i] = verify_block_plaintext[i] ^ salted[i];
     }
-	generate_file_signature(ctx, fd, pro1_data_zip_read, pro1_data_zip_lseek, ctx->sig);
+    if (generate_file_signature(ctx, fd, pro1_data_zip_read, pro1_data_zip_lseek, ctx->sig) != 0) {
+        fprintf(stderr, "%s: failed to generate file signature!\n", path);
+        free(ctx->pathname);
+        free(ctx);
+        return NULL;
+    }
     memcpy(&ctx->sig[sizeof(ctx->sig)-5], "SRSLY", 5);
 
     ctx->next = NULL;
