@@ -1,30 +1,42 @@
 #include <stdint.h>
 #include "dongle.h"
 #include "enc_zip_file.h"
-#include "sha1.h"
+#include "tomcrypt.h"
 #include "ow/shaib.h"
 #include "ow/ownet.h"
 #include "PIUTools_Debug.h"
 
 int derive_aes_key_from_ds1963s(const enc_zip_file_header *h, uint8_t out[24]) {
-    uint8_t scratchpadWorkspace[60];
+    uint8_t scratchpadWorkspace[60], sharesult[20];
 
-    sha1nfo key_seed, key_iter1, key_iter2;
+    hash_state key_seed, key_iter1, key_iter2;
     sha1_init(&key_seed);
     sha1_init(&key_iter1);
     sha1_init(&key_iter2);
 
     // sha1(subkey), sha1(subkey+sha1(subkey)), sha1(subkey+sha1(subkey+sha1(subkey)))
-    sha1_write(&key_seed, h->subkey, 1024);
-    memcpy(scratchpadWorkspace, sha1_result(&key_seed), 20);
+    sha1_process(&key_seed, h->subkey, 1024);
+    if (sha1_done(&key_seed, sharesult) != CRYPT_OK) {
+        fprintf(stderr, "%s: sha1_done failed\n", __FUNCTION__);
+        return -1;
+    }
+    memcpy(scratchpadWorkspace, sharesult, 20);
 
-    sha1_write(&key_iter1, h->subkey, 1024);
-    sha1_write(&key_iter1, scratchpadWorkspace, 20);
-    memcpy(scratchpadWorkspace+20, sha1_result(&key_iter1), 20);
+    sha1_process(&key_iter1, h->subkey, 1024);
+    sha1_process(&key_iter1, scratchpadWorkspace, 20);
+    if (sha1_done(&key_iter1, sharesult) != CRYPT_OK) {
+        fprintf(stderr, "%s: sha1_done failed\n", __FUNCTION__);
+        return -1;
+    }
+    memcpy(scratchpadWorkspace+20, sharesult, 20);
 
-    sha1_write(&key_iter2, h->subkey, 1024);
-    sha1_write(&key_iter2, scratchpadWorkspace, 40);
-    memcpy(scratchpadWorkspace+40, sha1_result(&key_iter2), 20);
+    sha1_process(&key_iter2, h->subkey, 1024);
+    sha1_process(&key_iter2, scratchpadWorkspace, 40);
+    if (sha1_done(&key_iter2, sharesult) != CRYPT_OK) {
+        fprintf(stderr, "%s: sha1_done failed\n", __FUNCTION__);
+        return -1;
+    }
+    memcpy(scratchpadWorkspace+40, sharesult, 20);
 
     return ds1963s_compute_data_sha(scratchpadWorkspace, out);
 }

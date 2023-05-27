@@ -35,8 +35,9 @@ typedef int (*close_func_t)(int);
 static close_func_t next_close;
 
 static char data_zip_dir[PATH_MAX];
-
 static zip_enc_context *head = NULL, *tail = NULL;
+
+zip_enc_context *create_new_context(const char *path, int fd);
 
 // ugly routine yanked from sm-ac-tools
 void saltHash(uint8_t *salted, const uint8_t salt[16], int addition) {
@@ -108,43 +109,6 @@ void saltHash(uint8_t *salted, const uint8_t salt[16], int addition) {
 }
 
 static char *verify_block_plaintext = "<<abcdefghijklmn";
-
-zip_enc_context *create_new_context(const char *path, int fd) {
-    uint8_t salted[16];
-
-    DBG_printf("pro1_data_zip: Creating new context for %s\n", path);
-    zip_enc_context *ctx = (zip_enc_context *)malloc(sizeof(zip_enc_context));
-    ctx->fd = fd;
-    ctx->pos = 0;
-    ctx->pathname = (char *)malloc(strlen(path)+1);
-    ctx->pathname[strlen(path)] = 0x0;
-    strncpy(ctx->pathname, path, strlen(path));
-    ctx->header = generate_header(fd);
-
-    // derive key and verify block
-    if (derive_aes_key_from_ds1963s(ctx->header, ctx->aes_key) != 0) {
-        fprintf(stderr, "failed to derive AES key from ds1963s\n");
-        return NULL;
-    }
-    saltHash(salted, ctx->header->salt, 0x123456);
-    AES_init_ctx(&ctx->aes_ctx, ctx->aes_key);
-    AES_ECB_encrypt(&ctx->aes_ctx, salted);
-    for (int i = 0; i < 16; i++) {
-        ctx->header->verify_block[i] = verify_block_plaintext[i] ^ salted[i];
-    }
-	generate_file_signature(ctx, fd, ctx->sig);
-    memcpy(&ctx->sig[sizeof(ctx->sig)-5], "SRSLY", 5);
-
-    ctx->next = NULL;
-    if (head == NULL) {
-        head = ctx;
-        tail = head;
-    } else {
-        tail->next = ctx;
-        tail = tail->next;
-    }
-    return ctx;
-}
 
 zip_enc_context *find_context_by_fd(int fd) {
     zip_enc_context *stl = head;
@@ -366,6 +330,43 @@ int pro1_data_zip_close(int fd) {
         zip_ctx->fd = 0;
     }
     return next_close(fd);
+}
+
+zip_enc_context *create_new_context(const char *path, int fd) {
+    uint8_t salted[16];
+
+    DBG_printf("pro1_data_zip: Creating new context for %s\n", path);
+    zip_enc_context *ctx = (zip_enc_context *)malloc(sizeof(zip_enc_context));
+    ctx->fd = fd;
+    ctx->pos = 0;
+    ctx->pathname = (char *)malloc(strlen(path)+1);
+    ctx->pathname[strlen(path)] = 0x0;
+    strncpy(ctx->pathname, path, strlen(path));
+    ctx->header = generate_header(fd);
+
+    // derive key and verify block
+    if (derive_aes_key_from_ds1963s(ctx->header, ctx->aes_key) != 0) {
+        fprintf(stderr, "failed to derive AES key from ds1963s\n");
+        return NULL;
+    }
+    saltHash(salted, ctx->header->salt, 0x123456);
+    AES_init_ctx(&ctx->aes_ctx, ctx->aes_key);
+    AES_ECB_encrypt(&ctx->aes_ctx, salted);
+    for (int i = 0; i < 16; i++) {
+        ctx->header->verify_block[i] = verify_block_plaintext[i] ^ salted[i];
+    }
+	generate_file_signature(ctx, fd, pro1_data_zip_read, pro1_data_zip_lseek, ctx->sig);
+    memcpy(&ctx->sig[sizeof(ctx->sig)-5], "SRSLY", 5);
+
+    ctx->next = NULL;
+    if (head == NULL) {
+        head = ctx;
+        tail = head;
+    } else {
+        tail->next = ctx;
+        tail = tail->next;
+    }
+    return ctx;
 }
 
 typedef void *(*string_cons_hook_func)(void *, const char*, unsigned int, void *);

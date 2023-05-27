@@ -1,3 +1,4 @@
+#pragma once
 #include <stdint.h>
 #include "enc_zip_file.h"
 
