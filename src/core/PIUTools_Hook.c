@@ -51,8 +51,8 @@ static void print_hook_status(const char* hook_type, const char* module_name, co
 int PIUTools_Hook_GetFunctionAddress(const char* library_name, const char* function_name, void** pfunction_address){
     // If we didn't specify a place to store the function address, we can't do anything.
     if (pfunction_address == NULL) { 
+        DBG_printf("[%s] (%s:%s) Error: pfunction_address cannot be NULL", __FUNCTION__, library_name, function_name);
         errno = EINVAL;
-        DBG_printf("[%s] (%s:%s) Error: %s", __FUNCTION__, library_name, function_name, strerror(errno));
         return 0; 
     }
     
@@ -60,16 +60,16 @@ int PIUTools_Hook_GetFunctionAddress(const char* library_name, const char* funct
     DBG_printf("[%s] %s:%s",__FUNCTION__,library_name,function_name);
     void* hLibrary = dlopen(library_name, RTLD_LAZY);
     if(hLibrary == NULL){
+        DBG_printf("[%s] (%s:%s) Error: %s", __FUNCTION__, library_name, function_name, dlerror());
         errno = EACCES;
-        DBG_printf("[%s] (%s:%s) Error: %s", __FUNCTION__, library_name, function_name, strerror(errno));
         return 0;
     }
     // Resolve our Symbol
     *pfunction_address = dlsym(hLibrary,function_name);
     // If we didn't resolve our symbol - die.
     if(*pfunction_address == NULL){
+        DBG_printf("[%s] (%s:%s) Error: %s", __FUNCTION__, library_name, function_name, dlerror());
         errno = EINVAL;
-        DBG_printf("[%s] (%s:%s) Error: %s", __FUNCTION__, library_name, function_name, strerror(errno));
         return 0;
     }
 
