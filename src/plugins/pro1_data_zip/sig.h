@@ -3,7 +3,7 @@
 #include "pro1_data_zip.h"
 #include <stdint.h>
 
-const unsigned char their_pubkey[140], our_pubkey[140], our_privkey[609];
+const unsigned char their_pubkey[140], our_pubkey[140], our_privkey[608];
 
 typedef ssize_t (*read_func_t)(int, void *, size_t);
 typedef int (*lseek_func_t)(int, off_t, int);
