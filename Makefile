@@ -99,10 +99,12 @@ PRO1_DATA_ZIP_SOURCES := src/plugins/pro1_data_zip/pro1_data_zip.c \
 						 src/plugins/pro1_data_zip/sig.c \
 						 src/plugins/pro1_data_zip/util.c
 
-LTC_OBJS := src/plugins/pro1_data_zip/ltc/linux_x86/libtomcrypt.a \
+#LTC_OBJS := src/plugins/pro1_data_zip/ltc/linux_x86/libtomcrypt.a \
+#			src/plugins/pro1_data_zip/ltc/linux_x86/libtommath.a
+LTC_OBJS := src/plugins/pro1_data_zip/ltc/linux_x86/libtomcrypt_debug.a \
 			src/plugins/pro1_data_zip/ltc/linux_x86/libtommath.a
 
-$(PLUGIN_BUILD_ROOT)/pro1_data_zip.plugin: $(PRO1_DATA_ZIP_OW_SOURCES) $(PRO1_DATA_ZIP_SOURCES)
+$(PLUGIN_BUILD_ROOT)/pro1_data_zip.plugin: $(PRO1_DATA_ZIP_OW_SOURCES) $(PRO1_DATA_ZIP_SOURCES) $(LTC_OBJS)
 	cc -shared -m32 -fPIC $(CFLAGS) $(PRO1_DATA_ZIP_SOURCES) $(PRO1_DATA_ZIP_OW_SOURCES) $(LTC_OBJS) -I src/plugins/pro1_data_zip/ltc/headers $(PLUGIN_INCLUDES) -o $@
 
 .PHONY: clean
