@@ -104,7 +104,11 @@ docker_args="run --device /dev/fuse --cap-add SYS_ADMIN --rm -it"
 # Add the Graphics Support Stuff
 docker_args+=" --gpus all -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY"
 # Add the Sound Stuff
-docker_args+=" -e PULSE_SERVER=$PULSE_SERVER -v /mnt/wslg/:/mnt/wslg/"
+if [ -e /mnt/wslg ]; then
+    docker_args+=" -e PULSE_SERVER=$PULSE_SERVER -v /mnt/wslg/:/mnt/wslg/"
+fi
+# Allow ptrace (and disabling ASLR) for gdb and strace to work
+docker_args+=" --cap-add=SYS_PTRACE --security-opt seccomp=unconfined"
 # Add Our PIUTools Mounts
 docker_args+=" -v $piutools_native_path:$piutools_bin"
 docker_args+=" -v $piutools_native_rom_path:$piutools_rom:ro"

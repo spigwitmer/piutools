@@ -134,7 +134,7 @@ int generate_file_signature(zip_enc_context *ctx, int fd,
         key_imported = 1;
     }
 
-    unsigned long sigout = 128;
+    unsigned long sigout = 133;
 
     if ((err = rsa_sign_hash_ex(filehash, 20, ctx->sig, &sigout, LTC_PKCS_1_V1_5, NULL, sprng_idx, sha1_idx, 0, &our_rsa_key)) != CRYPT_OK) {
         fprintf(stderr, "Could not sign hash: %s\n", error_to_string(err));
