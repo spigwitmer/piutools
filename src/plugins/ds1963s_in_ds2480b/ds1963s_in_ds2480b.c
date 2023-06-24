@@ -5,6 +5,8 @@
  */
 
 #include <pthread.h>
+#include <dlfcn.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <termios.h>
@@ -41,9 +43,43 @@ static pthread_t one_wire_thread;
 static char static_auth_data_config_b64[DS1963S_NUM_AUTH_DATA_PAGES][128] = {0};
 static uint8_t *auth_data_page_static_data[DS1963S_NUM_AUTH_DATA_PAGES] = {0};
 
+int _rebuild_transport() {
+    transport_destroy(serial);
+
+    if ((serial = transport_factory_new_by_name("pty")) == NULL) {
+        fprintf(stderr, "ds1963s_in_ds2480b: failed to replace serial transport\n");
+        return -1;
+    }
+    ds2480b.mode = DS2480_MODE_INACTIVE;
+    ds2480b_dev_connect_serial(&ds2480b, serial);
+
+    ds1963s.state = DS1963S_STATE_RESET_WAIT;
+
+    {
+        struct transport_pty_data *pdata;
+        pdata = (struct transport_pty_data *)serial->private_data;
+        pathname = pdata->pathname_slave;
+        DBG_printf("[%s] Fake ds1963s (re-)ready at %s\n", __FILE__, pathname);
+    }
+
+    // rebuild 1w bus
+    one_wire_bus_init(&bus);
+    if (ds2480b_dev_bus_connect(&ds2480b, &bus) == -1) {
+        fprintf(stderr, "Could not reconnect DS2480 to 1-wire bus.\n");
+        return -1;
+    }
+    ds1963s_dev_connect_bus(&ds1963s, &bus);
+
+    return 0;
+}
+
 static void *one_wire_loop() {
-    one_wire_bus_run(&bus);
-    DBG_printf("%s: one-wire thread exited\n", __FUNCTION__);
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    while (1) {
+        one_wire_bus_run(&bus);
+        DBG_printf("%s: one_wire_bus_run exited\n", __FUNCTION__);
+        _rebuild_transport();
+    }
     return NULL;
 }
 
@@ -82,41 +118,30 @@ int ds1963s_close(int fd) {
      * Recreate the transport for the emulated ibutton
      */
     int ret = next_close(fd);
+    int res, joinerr;
+    void *cancel_res;
     if (fd == cur_fd && cur_fd != -1) {
         /* recreate 1w transport entirely, by design the transport chokes after
          * the connection on the other side is closed.
          */
-        transport_destroy(serial);
-        int joinerr;
-        if ((joinerr = pthread_join(one_wire_thread, NULL)) != 0) {
+        res = pthread_cancel(one_wire_thread);
+        if (res != 0) {
+            perror("pthread_cancel");
+        }
+
+        if ((joinerr = pthread_join(one_wire_thread, &cancel_res)) != 0) {
             fprintf(stderr, "%s: pthread_join hoarked: %d\n", __FUNCTION__, joinerr);
-            //return -1;
         }
 
-        if ((serial = transport_factory_new_by_name("pty")) == NULL) {
-            fprintf(stderr, "ds1963s_in_ds2480b: failed to replace serial transport\n");
-            return -1;
+        if (cancel_res != PTHREAD_CANCELED) {
+            fprintf(stderr, "%s: premature thread cancel\n", __FUNCTION__);
         }
-        ds2480b.mode = DS2480_MODE_INACTIVE;
-        ds2480b_dev_connect_serial(&ds2480b, serial);
 
-        ds1963s.state = DS1963S_STATE_RESET_WAIT;
-
-        {
-            struct transport_pty_data *pdata;
-            pdata = (struct transport_pty_data *)serial->private_data;
-            pathname = pdata->pathname_slave;
-            DBG_printf("[%s] Fake ds1963s (re-)ready at %s\n", __FILE__, pathname);
-        }
         cur_fd = -1;
-
-        // rebuild 1w bus
-        one_wire_bus_init(&bus);
-        if (ds2480b_dev_bus_connect(&ds2480b, &bus) == -1) {
-            fprintf(stderr, "Could not reconnect DS2480 to 1-wire bus.\n");
+        if (_rebuild_transport() == -1) {
+            fprintf(stderr, "%s: failed to recreate transport.\n", __FUNCTION__);
             return -1;
         }
-        ds1963s_dev_connect_bus(&ds1963s, &bus);
 
         if (pthread_create(&one_wire_thread, NULL, one_wire_loop, NULL) != 0) {
             fprintf(stderr, "Failed to create one-wire thread.\n");
@@ -127,8 +152,8 @@ int ds1963s_close(int fd) {
 }
 
 static HookEntry entries[] = {
-    HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "open", ds1963s_open, &next_open, 1),
-    HOOK_ENTRY(HOOK_TYPE_INLINE, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "close", ds1963s_close, &next_close, 1),
+    HOOK_ENTRY(HOOK_TYPE_IMPORT, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "open", ds1963s_open, &next_open, 1),
+    HOOK_ENTRY(HOOK_TYPE_IMPORT, HOOK_TARGET_BASE_EXECUTABLE, "libc.so.6", "close", ds1963s_close, &next_close, 1),
     {}
 };
 

@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <signal.h>
@@ -233,7 +234,6 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
         got += header_count;
     }
     if (zip_ctx->pos < sig_start && remaining > 0) {
-        //DBG_printf("(pos:%d) reading out data\n", zip_ctx->pos);
         // how much data we're going to process, clamped to how much data
         // is actually available
         size_t encrypted_data_remaining = min(remaining, sig_start-zip_ctx->pos);
@@ -277,13 +277,12 @@ ssize_t pro1_data_zip_read(int fd, void *buf, size_t count) {
             }
             skip_bytes_in_first_block = 0;
         }
-        DBG_printf("%s: done reading out encrypted data for %d (%s)\n", __FUNCTION__, fd, zip_ctx->pathname);
     }
     if (zip_ctx->pos >= sig_start && remaining > 0) {
         // read signature
         size_t sig_available = sig_end - zip_ctx->pos;
         size_t read_from_sig = min(sig_available, min(remaining, sizeof(zip_ctx->sig)));
-        DBG_printf("(pos:%d) reading out sig (read_from_sig:%d)\n", zip_ctx->pos, read_from_sig);
+        //DBG_printf("(pos:%d) reading out sig (read_from_sig:%d)\n", zip_ctx->pos, read_from_sig);
         memcpy(buf+got, (void *)(&zip_ctx->sig[zip_ctx->pos - sig_start]), read_from_sig);
         zip_ctx->pos += read_from_sig;
         got += read_from_sig;
@@ -320,6 +319,7 @@ int pro1_data_zip_lseek(int fd, off_t offset, int whence) {
         return -1;
     }
 
+    DBG_printf("%s: %lu --> %lu\n", __FUNCTION__, zip_ctx->pos, new_offset);
     zip_ctx->pos = new_offset;
     return zip_ctx->pos;
 }

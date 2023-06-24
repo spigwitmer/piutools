@@ -18,7 +18,7 @@ all: $(BUILD_ROOT)/piutools.so plugins
 .PHONY: dist
 dist:
 	mkdir -p ./dist/plugins
-	cp -R ./ext/* ./dist/
+	#cp -R ./ext/* ./dist/
 	if [ -d ./build ]; then cp -R ./build/* ./dist/; fi
 
 .PHONY: piutools.so
